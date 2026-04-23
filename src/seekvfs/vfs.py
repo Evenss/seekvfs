@@ -5,7 +5,7 @@ Protocol-layer responsibilities only:
 - URI parsing + longest-prefix routing
 - Cross-backend search fan-out + reranker merge
 - Tool export
-- Lifecycle forwarding (``aclose``)
+- Lifecycle forwarding (``close``)
 
 No tier concepts, no derivative scheduling, no summarizer / embedder
 injection — those all live inside backend implementations (see e.g.
@@ -13,7 +13,6 @@ injection — those all live inside backend implementations (see e.g.
 """
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from seekvfs.exceptions import InvalidRouteConfig, VFSError
@@ -79,38 +78,39 @@ class VFS:
     # ---------- main API ----------
 
     @trace_span("vfs.write")
-    async def write(self, path: str, content: bytes | str) -> None:
+    def write(self, path: str, content: bytes | str) -> None:
         path = self._normalize(path)
         _, route = self._router.resolve(path)
-        await route["backend"].write(path, content)
+        route["backend"].write(path, content)
 
     @trace_span("vfs.read")
-    async def read(self, path: str, hint: str | None = None) -> FileData:
+    def read(self, path: str, hint: str | None = None) -> FileData:
         path = self._normalize(path)
         _, route = self._router.resolve(path)
-        return await route["backend"].read(path, hint=hint)
+        return route["backend"].read(path, hint=hint)
 
     @trace_span("vfs.read_full")
-    async def read_full(self, path: str) -> FileData:
+    def read_full(self, path: str) -> FileData:
         path = self._normalize(path)
         _, route = self._router.resolve(path)
-        return await route["backend"].read_full(path)
+        return route["backend"].read_full(path)
 
     @trace_span("vfs.search")
-    async def search(
+    def search(
         self,
         query: str,
         path_pattern: str | None = None,
         limit: int = 10,
         score_threshold: float | None = None,
     ) -> SearchResult:
-        """Fan out across every route in parallel, then rerank."""
+        """Fan out across every route sequentially, then rerank."""
         routes = self._router.all_routes()
         if not routes:
             return SearchResult(query=query, hits=[], searched_paths=[])
 
-        async def _one(prefix: str, route: RouteConfig) -> SearchResult:
-            out = await route["backend"].search(
+        per_backend: list[SearchResult] = []
+        for prefix, route in routes:
+            out = route["backend"].search(
                 query,
                 path_pattern=path_pattern,
                 limit=limit,
@@ -118,15 +118,12 @@ class VFS:
             )
             if prefix not in out.searched_paths:
                 out.searched_paths.append(prefix)
-            return out
+            per_backend.append(out)
 
-        per_backend = await asyncio.gather(
-            *(_one(prefix, route) for prefix, route in routes)
-        )
-        return self._reranker.merge(list(per_backend), limit=limit)
+        return self._reranker.merge(per_backend, limit=limit)
 
     @trace_span("vfs.ls")
-    async def ls(
+    def ls(
         self,
         path: str,
         pattern: str | None = None,
@@ -134,34 +131,32 @@ class VFS:
     ) -> list[FileInfo]:
         path = self._normalize(path)
         _, route = self._router.resolve(path)
-        return await route["backend"].ls(path, pattern=pattern, recursive=recursive)
+        return route["backend"].ls(path, pattern=pattern, recursive=recursive)
 
     @trace_span("vfs.edit")
-    async def edit(self, path: str, old: str, new: str) -> int:
+    def edit(self, path: str, old: str, new: str) -> int:
         path = self._normalize(path)
         _, route = self._router.resolve(path)
-        return await route["backend"].edit(path, old, new)
+        return route["backend"].edit(path, old, new)
 
     @trace_span("vfs.grep")
-    async def grep(
+    def grep(
         self,
         pattern: str,
         path_pattern: str | None = None,
     ) -> list[GrepMatch]:
         results: list[GrepMatch] = []
         for _, route in self._router.all_routes():
-            backend = route["backend"]
-            results.extend(await backend.grep(pattern, path_pattern=path_pattern))
+            results.extend(route["backend"].grep(pattern, path_pattern=path_pattern))
         return results
 
     @trace_span("vfs.delete")
-    async def delete(self, path: str) -> None:
+    def delete(self, path: str) -> None:
         path = self._normalize(path)
         _, route = self._router.resolve(path)
-        await route["backend"].delete(path)
+        route["backend"].delete(path)
 
-    async def read_batch(self, paths: list[str]) -> dict[str, FileData]:
-        # group paths by backend to minimize calls
+    def read_batch(self, paths: list[str]) -> dict[str, FileData]:
         by_backend: dict[int, tuple[object, list[str]]] = {}
         for p in paths:
             p = self._normalize(p)
@@ -172,7 +167,7 @@ class VFS:
 
         out: dict[str, FileData] = {}
         for _, (backend, sub_paths) in by_backend.items():
-            partial = await backend.read_batch(sub_paths)  # type: ignore[attr-defined]
+            partial = backend.read_batch(sub_paths)  # type: ignore[attr-defined]
             out.update(partial)
         return out
 
@@ -194,23 +189,28 @@ class VFS:
 
     # ---------- lifecycle ----------
 
-    async def aclose(self) -> None:
-        """Forward to every backend's ``aclose`` (if the backend exposes one).
+    def close(self) -> None:
+        """Forward to every backend's ``close`` (if the backend exposes one).
 
         Safe to call even when no backend has background state; backends
         with no resources simply return immediately.
         """
-        # Dedup by backend identity — two routes may share a backend instance.
         seen: set[int] = set()
         for _, route in self._router.all_routes():
             backend = route["backend"]
             if id(backend) in seen:
                 continue
             seen.add(id(backend))
-            aclose = getattr(backend, "aclose", None)
-            if aclose is None:
+            close = getattr(backend, "close", None)
+            if close is None:
                 continue
-            await aclose()
+            close()
+
+    def __enter__(self) -> VFS:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
 
 __all__ = ["VFS"]

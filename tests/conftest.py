@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import fnmatch
+import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -24,27 +24,27 @@ class _StubBackend:
 
     def __init__(self) -> None:
         self._files: dict[str, dict[str, Any]] = {}
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
 
-    async def write(self, path: str, content: bytes | str) -> None:
+    def write(self, path: str, content: bytes | str) -> None:
         data = content if isinstance(content, bytes) else content.encode("utf-8")
-        async with self._lock:
+        with self._lock:
             self._files[path] = {"content": data, "mtime": datetime.now(tz=UTC)}
 
-    async def read(self, path: str, hint: str | None = None) -> FileData:
-        async with self._lock:
+    def read(self, path: str, hint: str | None = None) -> FileData:
+        with self._lock:
             entry = self._files.get(path)
             if entry is None:
                 raise NotFoundError(path)
             return FileData(entry["content"], "utf-8")
 
-    async def read_full(self, path: str) -> FileData:
-        return await self.read(path)
+    def read_full(self, path: str) -> FileData:
+        return self.read(path)
 
-    async def read_batch(self, paths: list[str]) -> dict[str, FileData]:
-        return {p: await self.read(p) for p in paths}
+    def read_batch(self, paths: list[str]) -> dict[str, FileData]:
+        return {p: self.read(p) for p in paths}
 
-    async def search(
+    def search(
         self,
         query: str,
         path_pattern: str | None = None,
@@ -54,7 +54,7 @@ class _StubBackend:
         hits: list[SearchHit] = []
         searched: list[str] = []
         q_low = query.lower()
-        async with self._lock:
+        with self._lock:
             for path, entry in self._files.items():
                 if path_pattern is not None and not fnmatch.fnmatch(path, path_pattern):
                     continue
@@ -68,7 +68,7 @@ class _StubBackend:
                 hits.append(SearchHit(path=path, snippet="", score=score))
         return SearchResult(query=query, hits=hits[:limit], searched_paths=searched)
 
-    async def ls(
+    def ls(
         self,
         path: str,
         pattern: str | None = None,
@@ -76,7 +76,7 @@ class _StubBackend:
     ) -> list[FileInfo]:
         prefix = path if path.endswith("/") else path + "/"
         out: list[FileInfo] = []
-        async with self._lock:
+        with self._lock:
             for p, entry in self._files.items():
                 if not p.startswith(prefix):
                     continue
@@ -96,8 +96,8 @@ class _StubBackend:
         out.sort(key=lambda fi: fi.path)
         return out
 
-    async def edit(self, path: str, old: str, new: str) -> int:
-        async with self._lock:
+    def edit(self, path: str, old: str, new: str) -> int:
+        with self._lock:
             entry = self._files.get(path)
             if entry is None:
                 raise NotFoundError(path)
@@ -109,13 +109,13 @@ class _StubBackend:
             entry["mtime"] = datetime.now(tz=UTC)
             return count
 
-    async def grep(
+    def grep(
         self,
         pattern: str,
         path_pattern: str | None = None,
     ) -> list[GrepMatch]:
         out: list[GrepMatch] = []
-        async with self._lock:
+        with self._lock:
             for p, entry in self._files.items():
                 if path_pattern is not None and not fnmatch.fnmatch(p, path_pattern):
                     continue
@@ -125,14 +125,14 @@ class _StubBackend:
                         out.append(GrepMatch(path=p, line_number=idx, line=line))
         return out
 
-    async def delete(self, path: str) -> None:
-        async with self._lock:
+    def delete(self, path: str) -> None:
+        with self._lock:
             if path not in self._files:
                 raise NotFoundError(path)
             del self._files[path]
 
-    async def aclose(self) -> None:
-        return None
+    def close(self) -> None:
+        pass
 
 
 __all__ = ["_approx", "_StubBackend"]

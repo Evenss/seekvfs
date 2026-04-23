@@ -6,10 +6,11 @@ no-op so users never pay the instrumentation tax unless they opt in.
 from __future__ import annotations
 
 import functools
-from collections.abc import Awaitable, Callable
+import inspect
+from collections.abc import Callable
 from typing import Any, TypeVar
 
-F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
+F = TypeVar("F", bound=Callable[..., Any])
 
 _tracer: Any | None = None
 _otel_available: bool | None = None
@@ -40,18 +41,29 @@ def get_tracer() -> Any | None:
 
 
 def trace_span(name: str) -> Callable[[F], F]:
-    """Wrap an async function in an OpenTelemetry span when OT is available."""
+    """Wrap a sync or async function in an OpenTelemetry span when OT is available."""
 
     def decorator(fn: F) -> F:
-        @functools.wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            tracer = get_tracer()
-            if tracer is None:
-                return await fn(*args, **kwargs)
-            with tracer.start_as_current_span(name):
-                return await fn(*args, **kwargs)
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                tracer = get_tracer()
+                if tracer is None:
+                    return await fn(*args, **kwargs)
+                with tracer.start_as_current_span(name):
+                    return await fn(*args, **kwargs)
 
-        return wrapper  # type: ignore[return-value]
+            return async_wrapper  # type: ignore[return-value]
+        else:
+            @functools.wraps(fn)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                tracer = get_tracer()
+                if tracer is None:
+                    return fn(*args, **kwargs)
+                with tracer.start_as_current_span(name):
+                    return fn(*args, **kwargs)
+
+            return sync_wrapper  # type: ignore[return-value]
 
     return decorator
 

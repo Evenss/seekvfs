@@ -29,8 +29,8 @@ dependencies = [
 # (no extra deps; uses only stdlib + anyio)
 
 # ── Maximal recipe ────────────────────────────────────────────────────────────
-# Core maximal deps: OceanBase async driver + LangChain base interfaces
-maximal = ["asyncmy>=0.2", "langchain-core>=0.3"]
+# Core maximal deps: OceanBase sync driver (pyobvector) + LangChain base interfaces
+maximal = ["pyobvector>=0.2.6", "langchain-core>=0.3"]
 
 # LangChain provider extras — install whichever you use:
 langchain-openai    = ["langchain-openai>=0.3"]        # ChatOpenAI / OpenAIEmbeddings
@@ -39,7 +39,7 @@ langchain-community = ["langchain-community>=0.3"]     # ChatTongyi / DashScopeE
 
 # Convenience bundle: maximal + all first-party LangChain providers
 maximal-full = [
-    "asyncmy>=0.2",
+    "pyobvector>=0.2.6",
     "langchain-core>=0.3",
     "langchain-openai>=0.3",
     "langchain-anthropic>=0.3",

@@ -40,7 +40,7 @@ def to_mcp(specs: ToolSpecSet, server_name: str = "seekvfs") -> Any:
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict) -> Any:
         spec = specs.by_name(name)
-        return await spec.callable(**(arguments or {}))
+        return spec.callable(**(arguments or {}))
 
     return server
 

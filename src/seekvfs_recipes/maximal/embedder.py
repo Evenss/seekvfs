@@ -15,7 +15,7 @@ Usage example::
     emb = OllamaEmbeddings(model="nomic-embed-text")
 
     embedder = LangChainEmbedder(embeddings=emb)
-    vector = await embedder.embed("some text")
+    vector = embedder.embed("some text")
 """
 from __future__ import annotations
 
@@ -27,16 +27,16 @@ class LangChainEmbedder:
     ----------
     embeddings:
         A LangChain embeddings instance (e.g. ``OpenAIEmbeddings``,
-        ``BedrockEmbeddings``).  The object must support ``aembed_query``
+        ``BedrockEmbeddings``).  The object must support ``embed_query``
         (all LangChain embeddings implementations do).
     """
 
     def __init__(self, *, embeddings: object) -> None:
         self._embeddings = embeddings
 
-    async def embed(self, text: str) -> list[float]:
+    def embed(self, text: str) -> list[float]:
         """Return the embedding vector for *text*."""
-        result = await self._embeddings.aembed_query(text)  # type: ignore[attr-defined]
+        result = self._embeddings.embed_query(text)  # type: ignore[attr-defined]
         return list(result)
 
 

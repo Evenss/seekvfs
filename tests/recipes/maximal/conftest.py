@@ -12,12 +12,12 @@ class DummySummarizer:
         self.abstract_calls = 0
         self.overview_calls = 0
 
-    async def abstract(self, content: bytes | str) -> str:
+    def abstract(self, content: bytes | str) -> str:
         self.abstract_calls += 1
         text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
         return "L0:" + text[:40]
 
-    async def overview(self, content: bytes | str) -> str:
+    def overview(self, content: bytes | str) -> str:
         self.overview_calls += 1
         text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
         return "L1:" + text[:200]
@@ -30,7 +30,7 @@ class DummyEmbedder:
         self.dim = dim
         self.calls = 0
 
-    async def embed(self, text: str) -> list[float]:
+    def embed(self, text: str) -> list[float]:
         self.calls += 1
         vec = [0.0] * self.dim
         for i, ch in enumerate(text):

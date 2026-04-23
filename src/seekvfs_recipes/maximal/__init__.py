@@ -1,7 +1,7 @@
 """Maximal recipe — L2 on filesystem, L0/L1/embedding in OceanBase.
 
 The full-featured built-in backend. Handles summarization, embedding,
-async derivative lifecycle, and reconciliation so agents can do
+background derivative generation, and reconciliation so agents can do
 "read short first, read full on demand" plus vector search out of the box.
 
 Storage layout:
@@ -19,7 +19,7 @@ Schema:    ``src/seekvfs_recipes/maximal/schema.sql``.
 """
 from __future__ import annotations
 
-from seekvfs_recipes.maximal.backend import OceanbaseFsBackend
+from seekvfs_recipes.maximal.backend import GenerationMode, OceanbaseFsBackend
 from seekvfs_recipes.maximal.dao import FilesDAO
 from seekvfs_recipes.maximal.embedder import LangChainEmbedder
 from seekvfs_recipes.maximal.exceptions import TierNotAvailable
@@ -29,6 +29,7 @@ from seekvfs_recipes.maximal.summarizer import LangChainSummarizer
 
 __all__ = [
     "OceanbaseFsBackend",
+    "GenerationMode",
     "FilesDAO",
     "Summarizer",
     "Embedder",

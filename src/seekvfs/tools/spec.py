@@ -90,8 +90,8 @@ def _wrap_file_output(fd: FileData, path: str) -> str:
 
 # ---------- tool callable wrappers ----------
 
-async def _search(vfs: VFS, query: str, limit: int = 10) -> dict[str, Any]:
-    sr = await vfs.search(query, limit=limit)
+def _search(vfs: VFS, query: str, limit: int = 10) -> dict[str, Any]:
+    sr = vfs.search(query, limit=limit)
     return {
         "query": sr.query,
         "hits": [
@@ -106,33 +106,33 @@ async def _search(vfs: VFS, query: str, limit: int = 10) -> dict[str, Any]:
     }
 
 
-async def _read(vfs: VFS, path: str) -> str:
-    fd = await vfs.read(path)
+def _read(vfs: VFS, path: str) -> str:
+    fd = vfs.read(path)
     return _wrap_file_output(fd, path)
 
 
-async def _read_full(vfs: VFS, path: str) -> str:
-    fd = await vfs.read_full(path)
+def _read_full(vfs: VFS, path: str) -> str:
+    fd = vfs.read_full(path)
     return _wrap_file_output(fd, path)
 
 
-async def _write(vfs: VFS, path: str, content: str) -> str:
-    await vfs.write(path, content)
+def _write(vfs: VFS, path: str, content: str) -> str:
+    vfs.write(path, content)
     return f"wrote {path}"
 
 
-async def _edit(vfs: VFS, path: str, old: str, new: str) -> str:
-    n = await vfs.edit(path, old, new)
+def _edit(vfs: VFS, path: str, old: str, new: str) -> str:
+    n = vfs.edit(path, old, new)
     return f"{n} replacement(s) in {path}"
 
 
-async def _ls(
+def _ls(
     vfs: VFS,
     path: str,
     pattern: str | None = None,
     recursive: bool = False,
 ) -> list[dict[str, Any]]:
-    infos = await vfs.ls(path, pattern=pattern, recursive=recursive)
+    infos = vfs.ls(path, pattern=pattern, recursive=recursive)
     return [
         {
             "path": i.path,
@@ -144,20 +144,20 @@ async def _ls(
     ]
 
 
-async def _grep(
+def _grep(
     vfs: VFS,
     pattern: str,
     path_pattern: str | None = None,
 ) -> list[dict[str, Any]]:
-    matches = await vfs.grep(pattern, path_pattern=path_pattern)
+    matches = vfs.grep(pattern, path_pattern=path_pattern)
     return [
         {"path": m.path, "line_number": m.line_number, "line": m.line}
         for m in matches
     ]
 
 
-async def _delete(vfs: VFS, path: str) -> str:
-    await vfs.delete(path)
+def _delete(vfs: VFS, path: str) -> str:
+    vfs.delete(path)
     return f"deleted {path}"
 
 

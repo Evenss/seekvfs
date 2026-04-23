@@ -21,7 +21,6 @@ def tracer_provider():
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-    # clear cached tracer in module under test
     from seekvfs import observability
 
     observability._tracer = None
@@ -29,10 +28,9 @@ def tracer_provider():
     return exporter
 
 
-@pytest.mark.asyncio
-async def test_write_emits_span(tracer_provider) -> None:
+def test_write_emits_span(tracer_provider) -> None:
     vfs = VFS(routes={"seekvfs://a/": {"backend": _StubBackend()}})
-    await vfs.write("seekvfs://a/p", "hello")
+    vfs.write("seekvfs://a/p", "hello")
     spans = tracer_provider.get_finished_spans()
     names = {s.name for s in spans}
     assert "vfs.write" in names

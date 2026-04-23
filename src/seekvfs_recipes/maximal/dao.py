@@ -7,40 +7,42 @@ override only the methods you need, then pass your DAO to the backend::
     class MyDAO(FilesDAO):
         \"\"\"Custom schema: renamed columns, extra business fields.\"\"\"
 
-        async def upsert_init(self, path: str) -> None:
-            async with self._pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute(
+        def upsert_init(self, path: str) -> None:
+            with self._client.engine.connect() as conn:
+                conn.execute(
+                    text(
                         \"INSERT INTO my_docs (uri, summary, overview, vec)\"
-                        \" VALUES (%s, NULL, NULL, NULL)\"
+                        \" VALUES (:path, NULL, NULL, NULL)\"
                         \" ON DUPLICATE KEY UPDATE\"
-                        \"   summary = NULL, overview = NULL, vec = NULL\",
-                        (path,),
-                    )
-                    await conn.commit()
+                        \"   summary = NULL, overview = NULL, vec = NULL\"
+                    ),
+                    {\"path\": path},
+                )
+                conn.commit()
 
-        async def update_derivatives(
+        def update_derivatives(
             self, path: str, l0: str, l1: str, emb: list[float]
         ) -> None:
-            async with self._pool.acquire() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute(
+            with self._client.engine.connect() as conn:
+                conn.execute(
+                    text(
                         \"UPDATE my_docs\"
-                        \" SET summary = %s, overview = %s, vec = %s\"
-                        \" WHERE uri = %s\",
-                        (l0, l1, _vec_to_str(emb), path),
-                    )
-                    await conn.commit()
+                        \" SET summary = :l0, overview = :l1, vec = :emb\"
+                        \" WHERE uri = :path\"
+                    ),
+                    {\"l0\": l0, \"l1\": l1, \"emb\": _vec_to_str(emb), \"path\": path},
+                )
+                conn.commit()
 
         # ... override other methods as needed ...
 
 
     backend = OceanbaseFsBackend(
-        ob_pool=pool,
+        ob_client=client,
         fs_root=\"/data/agent_files\",
         summarizer=...,
         embedder=...,
-        dao=MyDAO(pool),   # ← inject your custom DAO
+        dao=MyDAO(client),   # ← inject your custom DAO
     )
 
 Default schema (``schema.sql``)::
@@ -59,6 +61,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import text
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,20 +79,22 @@ class FilesDAO:
     SQL dialect without touching the backend orchestration logic.
 
     Args:
-        pool: An ``asyncmy`` connection pool.
-        table: Table name (default ``"files"``).
+        client: A ``pyobvector.ObVecClient`` instance connected to OceanBase.
+        table: Table name (default ``"vfs_storage"``).
         vector_dim: Dimension of the embedding vector column (default 1536).
             Must match the output dimension of your :class:`Embedder`.
             Common values: OpenAI text-embedding-3-small → 1536,
             text-embedding-v3 (Qwen) → 1024.
     """
 
-    def __init__(self, pool: Any, table: str = "vfs_storage", vector_dim: int = 1536) -> None:
-        self._pool = pool
+    def __init__(
+        self, client: Any, table: str = "vfs_storage", vector_dim: int = 1536
+    ) -> None:
+        self._client = client
         self._table = table
         self._vector_dim = vector_dim
 
-    async def initialize(self) -> None:
+    def initialize(self) -> None:
         """Create the table and vector index if they do not already exist.
 
         Safe to call multiple times — uses ``CREATE TABLE IF NOT EXISTS``.
@@ -111,17 +117,16 @@ class FilesDAO:
             f"    WITH (distance = L2, type = HNSW, lib = vsag)"
             f")"
         )
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(ddl)
-            await conn.commit()
+        with self._client.engine.connect() as conn:
+            conn.execute(text(ddl))
+            conn.commit()
         logger.info("FilesDAO.initialize: table %r ready (dim=%d)", self._table, self._vector_dim)
 
     # ------------------------------------------------------------------ #
     # Write-path                                                           #
     # ------------------------------------------------------------------ #
 
-    async def upsert_init(self, path: str) -> None:
+    def upsert_init(self, path: str) -> None:
         """Ensure a row for *path* exists; reset stale derivatives to NULL.
 
         Called by ``write()`` before scheduling derivative generation.
@@ -130,58 +135,65 @@ class FilesDAO:
         ``ON DUPLICATE KEY UPDATE`` to avoid OceanBase HNSW vector-index
         conflicts when overwriting an existing embedding column.
         """
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"REPLACE INTO {self._table} (path, l0, l1, embedding)"
-                f" VALUES (%s, NULL, NULL, NULL)",
-                (path,),
+        with self._client.engine.connect() as conn:
+            conn.execute(
+                text(
+                    f"REPLACE INTO {self._table} (path, l0, l1, embedding)"
+                    f" VALUES (:path, NULL, NULL, NULL)"
+                ),
+                {"path": path},
             )
-            await conn.commit()
+            conn.commit()
 
-    async def update_derivatives(
+    def update_derivatives(
         self, path: str, l0: str, l1: str, emb: list[float]
     ) -> None:
         """Write generated L0/L1/embedding for *path*.
 
-        Called after async (or sync) derivative generation completes.
+        Called after derivative generation completes.
         """
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"UPDATE {self._table}"
-                f" SET l0 = %s, l1 = %s, embedding = %s"
-                f" WHERE path = %s",
-                (l0, l1, _vec_to_str(emb), path),
+        with self._client.engine.connect() as conn:
+            conn.execute(
+                text(
+                    f"UPDATE {self._table}"
+                    f" SET l0 = :l0, l1 = :l1, embedding = :emb"
+                    f" WHERE path = :path"
+                ),
+                {"l0": l0, "l1": l1, "emb": _vec_to_str(emb), "path": path},
             )
-            await conn.commit()
+            conn.commit()
 
-    async def clear_derivatives(self, path: str) -> None:
+    def clear_derivatives(self, path: str) -> None:
         """Set L0/L1/embedding back to NULL after an ``edit()``.
 
         Marks the stored derivatives as stale; a new generation pass
         will fill them in.
         """
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"UPDATE {self._table}"
-                f" SET l0 = NULL, l1 = NULL, embedding = NULL"
-                f" WHERE path = %s",
-                (path,),
+        with self._client.engine.connect() as conn:
+            conn.execute(
+                text(
+                    f"UPDATE {self._table}"
+                    f" SET l0 = NULL, l1 = NULL, embedding = NULL"
+                    f" WHERE path = :path"
+                ),
+                {"path": path},
             )
-            await conn.commit()
+            conn.commit()
 
-    async def delete(self, path: str) -> None:
+    def delete(self, path: str) -> None:
         """Remove the row for *path* from the database."""
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"DELETE FROM {self._table} WHERE path = %s", (path,)
+        with self._client.engine.connect() as conn:
+            conn.execute(
+                text(f"DELETE FROM {self._table} WHERE path = :path"),
+                {"path": path},
             )
-            await conn.commit()
+            conn.commit()
 
     # ------------------------------------------------------------------ #
     # Read-path                                                            #
     # ------------------------------------------------------------------ #
 
-    async def get_l0(self, path: str) -> tuple[bool, str | None]:
+    def get_l0(self, path: str) -> tuple[bool, str | None]:
         """Fetch the L0 abstract for *path*.
 
         Returns:
@@ -191,27 +203,27 @@ class FilesDAO:
             - ``row_exists = True, l0_value = None`` → row exists but L0 not yet generated.
             - ``row_exists = True, l0_value = "..."`` → L0 is available.
         """
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"SELECT l0 FROM {self._table} WHERE path = %s", (path,)
-            )
-            row = await cur.fetchone()
+        with self._client.engine.connect() as conn:
+            row = conn.execute(
+                text(f"SELECT l0 FROM {self._table} WHERE path = :path"),
+                {"path": path},
+            ).fetchone()
         if row is None:
             return False, None
         return True, row[0]
 
-    async def get_l1(self, path: str) -> tuple[bool, str | None]:
+    def get_l1(self, path: str) -> tuple[bool, str | None]:
         """Fetch the L1 overview for *path*.  Same semantics as ``get_l0``."""
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"SELECT l1 FROM {self._table} WHERE path = %s", (path,)
-            )
-            row = await cur.fetchone()
+        with self._client.engine.connect() as conn:
+            row = conn.execute(
+                text(f"SELECT l1 FROM {self._table} WHERE path = :path"),
+                {"path": path},
+            ).fetchone()
         if row is None:
             return False, None
         return True, row[0]
 
-    async def get_l1_l0(
+    def get_l1_l0(
         self, path: str
     ) -> tuple[bool, str | None, str | None]:
         """Fetch L1 and L0 together (used for ``hint=None`` waterfall).
@@ -219,11 +231,11 @@ class FilesDAO:
         Returns:
             ``(row_exists, l1_value, l0_value)``
         """
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"SELECT l1, l0 FROM {self._table} WHERE path = %s", (path,)
-            )
-            row = await cur.fetchone()
+        with self._client.engine.connect() as conn:
+            row = conn.execute(
+                text(f"SELECT l1, l0 FROM {self._table} WHERE path = :path"),
+                {"path": path},
+            ).fetchone()
         if row is None:
             return False, None, None
         return True, row[0], row[1]
@@ -232,7 +244,7 @@ class FilesDAO:
     # Search                                                               #
     # ------------------------------------------------------------------ #
 
-    async def vector_search(
+    def vector_search(
         self,
         emb: list[float],
         path_like: str | None,
@@ -251,25 +263,25 @@ class FilesDAO:
             List of ``(path, l0_snippet, score)`` ordered by score DESC.
             ``l0_snippet`` may be ``None`` if L0 is not yet generated.
         """
-        emb_str = _vec_to_str(emb)
-        sql = (
-            f"SELECT path, l0, 1 - l2_distance(embedding, %s) AS score"
-            f" FROM {self._table}"
-            f" WHERE embedding IS NOT NULL"
-        )
-        params: list = [emb_str]
-        if path_like:
-            sql += " AND path LIKE %s"
-            params.append(path_like)
-        if score_threshold is not None:
-            sql += " HAVING score >= %s"
-            params.append(score_threshold)
-        sql += " ORDER BY score DESC LIMIT %s"
-        params.append(limit)
+        params: dict[str, Any] = {"emb": _vec_to_str(emb), "limit": limit}
 
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(sql, params)
-            rows = await cur.fetchall()
+        where_parts = ["embedding IS NOT NULL"]
+        if path_like:
+            where_parts.append("path LIKE :path_like")
+            params["path_like"] = path_like
+
+        sql = (
+            f"SELECT path, l0, 1 - l2_distance(embedding, :emb) AS score"
+            f" FROM {self._table}"
+            f" WHERE {' AND '.join(where_parts)}"
+        )
+        if score_threshold is not None:
+            sql += " HAVING score >= :score_threshold"
+            params["score_threshold"] = score_threshold
+        sql += " ORDER BY score DESC LIMIT :limit"
+
+        with self._client.engine.connect() as conn:
+            rows = conn.execute(text(sql), params).fetchall()
 
         return [(r[0], r[1], float(r[2])) for r in rows]
 
@@ -277,7 +289,7 @@ class FilesDAO:
     # Bulk / utility                                                       #
     # ------------------------------------------------------------------ #
 
-    async def batch_l0(self, paths: list[str]) -> dict[str, str | None]:
+    def batch_l0(self, paths: list[str]) -> dict[str, str | None]:
         """Fetch L0 snippets for multiple *paths* in one query.
 
         Returns a mapping ``{path: l0_or_None}``; paths with no DB row
@@ -285,17 +297,19 @@ class FilesDAO:
         """
         if not paths:
             return {}
-        placeholders = ", ".join(["%s"] * len(paths))
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"SELECT path, l0 FROM {self._table}"
-                f" WHERE path IN ({placeholders})",
-                paths,
-            )
-            rows = await cur.fetchall()
+        placeholders = ", ".join([f":p{i}" for i in range(len(paths))])
+        params = {f"p{i}": p for i, p in enumerate(paths)}
+        with self._client.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"SELECT path, l0 FROM {self._table}"
+                    f" WHERE path IN ({placeholders})"
+                ),
+                params,
+            ).fetchall()
         return {r[0]: r[1] for r in rows}
 
-    async def find_incomplete(
+    def find_incomplete(
         self, all_paths: list[str]
     ) -> tuple[set[str], set[str]]:
         """Identify paths that need derivative generation.
@@ -312,23 +326,31 @@ class FilesDAO:
         if not all_paths:
             return set(), set()
 
-        placeholders = ", ".join(["%s"] * len(all_paths))
+        placeholders = ", ".join([f":p{i}" for i in range(len(all_paths))])
+        params = {f"p{i}": p for i, p in enumerate(all_paths)}
 
-        async with self._pool.acquire() as conn, conn.cursor() as cur:
-            await cur.execute(
-                f"SELECT path FROM {self._table}"
-                f" WHERE path IN ({placeholders})"
-                f" AND (l0 IS NULL OR l1 IS NULL OR embedding IS NULL)",
-                all_paths,
-            )
-            missing_deriv: set[str] = {r[0] for r in await cur.fetchall()}
-
-            await cur.execute(
-                f"SELECT path FROM {self._table}"
-                f" WHERE path IN ({placeholders})",
-                all_paths,
-            )
-            in_db: set[str] = {r[0] for r in await cur.fetchall()}
+        with self._client.engine.connect() as conn:
+            missing_deriv: set[str] = {
+                r[0]
+                for r in conn.execute(
+                    text(
+                        f"SELECT path FROM {self._table}"
+                        f" WHERE path IN ({placeholders})"
+                        f" AND (l0 IS NULL OR l1 IS NULL OR embedding IS NULL)"
+                    ),
+                    params,
+                ).fetchall()
+            }
+            in_db: set[str] = {
+                r[0]
+                for r in conn.execute(
+                    text(
+                        f"SELECT path FROM {self._table}"
+                        f" WHERE path IN ({placeholders})"
+                    ),
+                    params,
+                ).fetchall()
+            }
 
         no_db_record = set(all_paths) - in_db
         return missing_deriv, no_db_record

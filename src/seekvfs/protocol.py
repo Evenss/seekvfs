@@ -38,17 +38,17 @@ class BackendProtocol(Protocol):
     understand a hint should ignore it or raise.
     """
 
-    async def write(self, path: str, content: bytes | str) -> None: ...
+    def write(self, path: str, content: bytes | str) -> None: ...
 
-    async def read(
+    def read(
         self,
         path: str,
         hint: str | None = None,
     ) -> FileData: ...
 
-    async def read_full(self, path: str) -> FileData: ...
+    def read_full(self, path: str) -> FileData: ...
 
-    async def search(
+    def search(
         self,
         query: str,
         path_pattern: str | None = None,
@@ -56,31 +56,31 @@ class BackendProtocol(Protocol):
         score_threshold: float | None = None,
     ) -> SearchResult: ...
 
-    async def ls(
+    def ls(
         self,
         path: str,
         pattern: str | None = None,
         recursive: bool = False,
     ) -> list[FileInfo]: ...
 
-    async def edit(self, path: str, old: str, new: str) -> int: ...
+    def edit(self, path: str, old: str, new: str) -> int: ...
 
-    async def grep(
+    def grep(
         self,
         pattern: str,
         path_pattern: str | None = None,
     ) -> list[GrepMatch]: ...
 
-    async def delete(self, path: str) -> None: ...
+    def delete(self, path: str) -> None: ...
 
-    async def read_batch(self, paths: list[str]) -> dict[str, FileData]: ...
+    def read_batch(self, paths: list[str]) -> dict[str, FileData]: ...
 
-    async def aclose(self) -> None:
-        """Release any resources / await any in-flight background work.
+    def close(self) -> None:
+        """Release any resources / wait for any in-flight background work.
 
         Implementations without background state should make this a no-op.
         """
         ...
 
 
-__all__ = ["Reranker", "BackendProtocol"]
+__all__ = ["BackendProtocol", "Reranker"]

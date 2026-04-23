@@ -20,8 +20,8 @@ Usage example::
         overview_prompt="Summarise the document in 3-5 bullet points.",
     )
 
-    abstract = await summarizer.abstract(b"... file content ...")
-    overview = await summarizer.overview(b"... file content ...")
+    abstract = summarizer.abstract(b"... file content ...")
+    overview = summarizer.overview(b"... file content ...")
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class LangChainSummarizer:
     ----------
     llm:
         A LangChain chat model instance (e.g. ``ChatOpenAI``, ``ChatAnthropic``).
-        The object must support ``ainvoke`` (all LangChain chat models do).
+        The object must support ``invoke`` (all LangChain chat models do).
     abstract_prompt:
         System prompt used when generating the short abstract (L0, ~100 tokens).
     overview_prompt:
@@ -59,7 +59,7 @@ class LangChainSummarizer:
         self.abstract_prompt = abstract_prompt
         self.overview_prompt = overview_prompt
 
-    async def _call(self, system_prompt: str, text: str) -> str:
+    def _call(self, system_prompt: str, text: str) -> str:
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
         except ImportError as exc:  # pragma: no cover
@@ -68,16 +68,16 @@ class LangChainSummarizer:
                 "Install with: pip install langchain-core"
             ) from exc
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=text)]
-        response = await self._llm.ainvoke(messages)  # type: ignore[attr-defined]
+        response = self._llm.invoke(messages)  # type: ignore[attr-defined]
         return str(response.content).strip()
 
-    async def abstract(self, content: bytes | str) -> str:
+    def abstract(self, content: bytes | str) -> str:
         """Generate a short abstract (L0)."""
-        return await self._call(self.abstract_prompt, _as_text(content))
+        return self._call(self.abstract_prompt, _as_text(content))
 
-    async def overview(self, content: bytes | str) -> str:
+    def overview(self, content: bytes | str) -> str:
         """Generate a fuller overview (L1)."""
-        return await self._call(self.overview_prompt, _as_text(content))
+        return self._call(self.overview_prompt, _as_text(content))
 
 
 __all__ = ["LangChainSummarizer"]

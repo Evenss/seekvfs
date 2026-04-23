@@ -23,7 +23,7 @@ def _require_langchain():
 
 def _to_tool(StructuredTool: Any, spec: ToolSpec) -> Any:  # noqa: N803
     return StructuredTool.from_function(
-        coroutine=spec.callable,
+        func=spec.callable,
         name=spec.name,
         description=spec.description,
         args_schema=None,  # rely on description + native param coercion

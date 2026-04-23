@@ -21,8 +21,8 @@ Full usage / adaptation guide: ``docs/recipes/minimal.md``.
 """
 from __future__ import annotations
 
-import asyncio
 import fnmatch
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,8 +64,7 @@ class FileBackend:
     def __init__(self, root_dir: str | Path) -> None:
         self._root = Path(root_dir).resolve()
         self._root.mkdir(parents=True, exist_ok=True)
-        # Used only for edit (read-modify-write atomicity).
-        self._edit_lock = asyncio.Lock()
+        self._edit_lock = threading.Lock()
 
     # ---------- internal helpers ----------
 
@@ -81,46 +80,34 @@ class FileBackend:
 
     # ---------- writes ----------
 
-    async def write(self, path: str, content: bytes | str) -> None:
+    def write(self, path: str, content: bytes | str) -> None:
         data = _to_bytes(content)
         fp = self._local(path)
-
-        def _write() -> None:
-            fp.parent.mkdir(parents=True, exist_ok=True)
-            fp.write_bytes(data)
-
-        await asyncio.to_thread(_write)
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(data)
 
     # ---------- reads ----------
 
-    async def read(self, path: str, hint: str | None = None) -> FileData:
+    def read(self, path: str, hint: str | None = None) -> FileData:
         """Read the stored content.
 
         ``hint`` is accepted and silently ignored — this backend stores
         only one representation per path.
         """
         fp = self._local(path)
+        if not fp.exists():
+            raise NotFoundError(path)
+        return FileData(fp.read_bytes(), "utf-8")
 
-        def _read() -> bytes:
-            if not fp.exists():
-                raise NotFoundError(path)
-            return fp.read_bytes()
+    def read_full(self, path: str) -> FileData:
+        return self.read(path)
 
-        data = await asyncio.to_thread(_read)
-        return FileData(data, "utf-8")
-
-    async def read_full(self, path: str) -> FileData:
-        return await self.read(path)
-
-    async def read_batch(self, paths: list[str]) -> dict[str, FileData]:
-        out: dict[str, FileData] = {}
-        for p in paths:
-            out[p] = await self.read(p)
-        return out
+    def read_batch(self, paths: list[str]) -> dict[str, FileData]:
+        return {p: self.read(p) for p in paths}
 
     # ---------- search ----------
 
-    async def search(
+    def search(
         self,
         query: str,
         path_pattern: str | None = None,
@@ -136,25 +123,18 @@ class FileBackend:
         scheme = _detect_scheme(path_pattern)
         q_low = query.lower()
 
-        def _scan() -> list[tuple[str, bytes]]:
-            pairs: list[tuple[str, bytes]] = []
-            for fp in self._root.rglob("*"):
-                if not fp.is_file():
-                    continue
-                vfs_path = self._reconstruct(fp, scheme)
-                if path_pattern is not None and not fnmatch.fnmatch(vfs_path, path_pattern):
-                    continue
-                try:
-                    data = fp.read_bytes()
-                except OSError:
-                    continue
-                pairs.append((vfs_path, data))
-            return pairs
-
-        files = await asyncio.to_thread(_scan)
         hits: list[SearchHit] = []
         searched: list[str] = []
-        for vfs_path, data in files:
+        for fp in self._root.rglob("*"):
+            if not fp.is_file():
+                continue
+            vfs_path = self._reconstruct(fp, scheme)
+            if path_pattern is not None and not fnmatch.fnmatch(vfs_path, path_pattern):
+                continue
+            try:
+                data = fp.read_bytes()
+            except OSError:
+                continue
             searched.append(vfs_path)
             text = data.decode("utf-8", errors="replace")
             score = 1.0 if q_low and q_low in text.lower() else 0.0
@@ -167,113 +147,95 @@ class FileBackend:
 
     # ---------- listing ----------
 
-    async def ls(
+    def ls(
         self,
         path: str,
         pattern: str | None = None,
         recursive: bool = False,
     ) -> list[FileInfo]:
         prefix = path if path.endswith("/") else path + "/"
-        # Local directory: strip scheme and trailing slash
         local_rel = prefix.removeprefix(_SCHEME).rstrip("/")
         local_dir = (self._root / local_rel) if local_rel else self._root
 
-        def _ls() -> list[FileInfo]:
-            out: list[FileInfo] = []
-            if not local_dir.exists():
-                return out
-            candidates = local_dir.rglob("*") if recursive else local_dir.iterdir()
-            for fp in candidates:
-                if not fp.is_file():
-                    continue
-                rest = str(fp.relative_to(local_dir))
-                if pattern is not None and not fnmatch.fnmatch(rest, pattern):
-                    continue
-                stat = fp.stat()
-                out.append(
-                    FileInfo(
-                        path=prefix + rest,
-                        size=stat.st_size,
-                        mtime=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
-                        is_dir=False,
-                    )
-                )
-            out.sort(key=lambda fi: fi.path)
+        out: list[FileInfo] = []
+        if not local_dir.exists():
             return out
-
-        return await asyncio.to_thread(_ls)
+        candidates = local_dir.rglob("*") if recursive else local_dir.iterdir()
+        for fp in candidates:
+            if not fp.is_file():
+                continue
+            rest = str(fp.relative_to(local_dir))
+            if pattern is not None and not fnmatch.fnmatch(rest, pattern):
+                continue
+            stat = fp.stat()
+            out.append(
+                FileInfo(
+                    path=prefix + rest,
+                    size=stat.st_size,
+                    mtime=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
+                    is_dir=False,
+                )
+            )
+        out.sort(key=lambda fi: fi.path)
+        return out
 
     # ---------- edit ----------
 
-    async def edit(self, path: str, old: str, new: str) -> int:
+    def edit(self, path: str, old: str, new: str) -> int:
         fp = self._local(path)
-        async with self._edit_lock:
-
-            def _edit() -> int:
-                if not fp.exists():
-                    raise NotFoundError(path)
-                text = fp.read_bytes().decode("utf-8", errors="replace")
-                count = text.count(old)
-                if count == 0:
-                    return 0
-                fp.write_bytes(text.replace(old, new).encode("utf-8"))
-                return count
-
-            return await asyncio.to_thread(_edit)
+        with self._edit_lock:
+            if not fp.exists():
+                raise NotFoundError(path)
+            text = fp.read_bytes().decode("utf-8", errors="replace")
+            count = text.count(old)
+            if count == 0:
+                return 0
+            fp.write_bytes(text.replace(old, new).encode("utf-8"))
+            return count
 
     # ---------- grep ----------
 
-    async def grep(
+    def grep(
         self,
         pattern: str,
         path_pattern: str | None = None,
     ) -> list[GrepMatch]:
         scheme = _detect_scheme(path_pattern)
-
-        def _grep() -> list[GrepMatch]:
-            out: list[GrepMatch] = []
-            for fp in self._root.rglob("*"):
-                if not fp.is_file():
-                    continue
-                vfs_path = self._reconstruct(fp, scheme)
-                if path_pattern is not None and not fnmatch.fnmatch(vfs_path, path_pattern):
-                    continue
-                try:
-                    text = fp.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-                for idx, line in enumerate(text.splitlines(), start=1):
-                    if pattern in line:
-                        out.append(GrepMatch(path=vfs_path, line_number=idx, line=line))
-            return out
-
-        return await asyncio.to_thread(_grep)
+        out: list[GrepMatch] = []
+        for fp in self._root.rglob("*"):
+            if not fp.is_file():
+                continue
+            vfs_path = self._reconstruct(fp, scheme)
+            if path_pattern is not None and not fnmatch.fnmatch(vfs_path, path_pattern):
+                continue
+            try:
+                text = fp.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for idx, line in enumerate(text.splitlines(), start=1):
+                if pattern in line:
+                    out.append(GrepMatch(path=vfs_path, line_number=idx, line=line))
+        return out
 
     # ---------- delete ----------
 
-    async def delete(self, path: str) -> None:
+    def delete(self, path: str) -> None:
         fp = self._local(path)
-
-        def _delete() -> None:
-            if not fp.exists():
-                raise NotFoundError(path)
-            fp.unlink()
-            # Remove empty parent directories up to (but not including) root.
-            parent = fp.parent
-            while parent != self._root:
-                try:
-                    parent.rmdir()
-                    parent = parent.parent
-                except OSError:
-                    break
-
-        await asyncio.to_thread(_delete)
+        if not fp.exists():
+            raise NotFoundError(path)
+        fp.unlink()
+        parent = fp.parent
+        while parent != self._root:
+            try:
+                parent.rmdir()
+                parent = parent.parent
+            except OSError:
+                break
 
     # ---------- lifecycle ----------
 
-    async def aclose(self) -> None:
-        # No background state — nothing to wait on.
-        return None
+    def close(self) -> None:
+        pass
 
 
 __all__ = ["FileBackend"]
