@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from seekvfs.exceptions import InvalidRouteConfig
+from seekvfs.exceptions import InvalidRouteConfig, VFSError
 from seekvfs.models import (
     FileData,
     FileInfo,
@@ -42,10 +42,27 @@ class VFS:
         routes: dict[str, RouteConfig],
         reranker: Reranker | None = None,
     ) -> None:
-        self._validate_routes(routes)
-        self._routes = routes
-        self._router = Router(routes)
+        normalized = {self._normalize(k): v for k, v in routes.items()}
+        self._validate_routes(normalized)
+        self._routes = normalized
+        self._router = Router(normalized)
         self._reranker: Reranker = reranker or LinearReranker()
+
+    @staticmethod
+    def _normalize(path: str) -> str:
+        """Ensure *path* carries the ``seekvfs://`` scheme.
+
+        * Already starts with ``seekvfs://`` → returned as-is (idempotent).
+        * Bare path with no ``://`` → ``seekvfs://`` is prepended automatically.
+        * Contains ``://`` but not ``seekvfs://`` → raises :class:`VFSError`.
+        """
+        if path.startswith(SCHEME):
+            return path
+        if "://" in path:
+            raise VFSError(
+                f"path uses an unknown scheme; expected {SCHEME!r}, got {path!r}"
+            )
+        return SCHEME + path
 
     @staticmethod
     def _validate_routes(routes: dict[str, RouteConfig]) -> None:
@@ -63,16 +80,19 @@ class VFS:
 
     @trace_span("vfs.write")
     async def write(self, path: str, content: bytes | str) -> None:
+        path = self._normalize(path)
         _, route = self._router.resolve(path)
         await route["backend"].write(path, content)
 
     @trace_span("vfs.read")
     async def read(self, path: str, hint: str | None = None) -> FileData:
+        path = self._normalize(path)
         _, route = self._router.resolve(path)
         return await route["backend"].read(path, hint=hint)
 
     @trace_span("vfs.read_full")
     async def read_full(self, path: str) -> FileData:
+        path = self._normalize(path)
         _, route = self._router.resolve(path)
         return await route["backend"].read_full(path)
 
@@ -112,11 +132,13 @@ class VFS:
         pattern: str | None = None,
         recursive: bool = False,
     ) -> list[FileInfo]:
+        path = self._normalize(path)
         _, route = self._router.resolve(path)
         return await route["backend"].ls(path, pattern=pattern, recursive=recursive)
 
     @trace_span("vfs.edit")
     async def edit(self, path: str, old: str, new: str) -> int:
+        path = self._normalize(path)
         _, route = self._router.resolve(path)
         return await route["backend"].edit(path, old, new)
 
@@ -134,6 +156,7 @@ class VFS:
 
     @trace_span("vfs.delete")
     async def delete(self, path: str) -> None:
+        path = self._normalize(path)
         _, route = self._router.resolve(path)
         await route["backend"].delete(path)
 
@@ -141,6 +164,7 @@ class VFS:
         # group paths by backend to minimize calls
         by_backend: dict[int, tuple[object, list[str]]] = {}
         for p in paths:
+            p = self._normalize(p)
             _, route = self._router.resolve(p)
             b = route["backend"]
             key = id(b)

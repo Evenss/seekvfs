@@ -2,14 +2,59 @@ from __future__ import annotations
 
 import pytest
 
-from seekvfs.exceptions import InvalidRouteConfig, NotFoundError
+from seekvfs.exceptions import InvalidRouteConfig, NotFoundError, VFSError
 from seekvfs.vfs import VFS
 from tests.conftest import _StubBackend
 
 
 async def test_invalid_route_key_rejected() -> None:
-    with pytest.raises(InvalidRouteConfig):
+    with pytest.raises((InvalidRouteConfig, VFSError)):
         VFS(routes={"foo://": {"backend": _StubBackend()}})
+
+
+# ── bare-path auto-normalization ──────────────────────────────────────────────
+
+async def test_bare_route_key_auto_normalized() -> None:
+    """Route key without seekvfs:// scheme is accepted and auto-normalized."""
+    vfs = VFS(routes={"notes/": {"backend": _StubBackend()}})
+    await vfs.write("notes/a.md", "hello")
+    fd = await vfs.read("notes/a.md")
+    assert fd.content == b"hello"
+
+
+async def test_bare_path_write_read_roundtrip() -> None:
+    """Bare paths in write/read are equivalent to their seekvfs:// versions."""
+    be = _StubBackend()
+    vfs = VFS(routes={"seekvfs://a/": {"backend": be}})
+    await vfs.write("a/x", "body")
+    fd = await vfs.read("a/x")
+    assert fd.content == b"body"
+
+
+async def test_bare_and_full_paths_are_equivalent() -> None:
+    """Writing with seekvfs:// and reading with bare path (and vice versa) works."""
+    vfs = VFS(routes={"a/": {"backend": _StubBackend()}})
+    await vfs.write("seekvfs://a/x", "written with full path")
+    fd = await vfs.read("a/x")
+    assert fd.content == b"written with full path"
+
+
+async def test_unknown_scheme_raises_vfs_error() -> None:
+    """A path like 'http://...' should raise VFSError, not be silently mangled."""
+    vfs = VFS(routes={"a/": {"backend": _StubBackend()}})
+    with pytest.raises(VFSError):
+        await vfs.read("http://a/x")
+
+
+async def test_bare_path_read_batch() -> None:
+    """read_batch accepts bare paths and returns normalized keys."""
+    be = _StubBackend()
+    vfs = VFS(routes={"a/": {"backend": be}})
+    await vfs.write("a/x", "cx")
+    await vfs.write("a/y", "cy")
+    got = await vfs.read_batch(["a/x", "a/y"])
+    assert got["seekvfs://a/x"].content == b"cx"
+    assert got["seekvfs://a/y"].content == b"cy"
 
 
 async def test_empty_routes_rejected() -> None:
