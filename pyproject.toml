@@ -1,0 +1,101 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seekvfs"
+version = "0.1.0"
+description = "A protocol-level unified VFS for AI agents with L0/L1/L2 tiered storage."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "SeekVFS Contributors" }]
+keywords = ["agent", "vfs", "llm", "storage", "memory"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "anyio>=4.0",
+]
+
+[project.optional-dependencies]
+# ── Minimal recipe ────────────────────────────────────────────────────────────
+# (no extra deps; uses only stdlib + anyio)
+
+# ── Maximal recipe ────────────────────────────────────────────────────────────
+# Core maximal deps: OceanBase async driver + LangChain base interfaces
+maximal = ["asyncmy>=0.2", "langchain-core>=0.3"]
+
+# LangChain provider extras — install whichever you use:
+langchain-openai    = ["langchain-openai>=0.3"]        # ChatOpenAI / OpenAIEmbeddings
+langchain-anthropic = ["langchain-anthropic>=0.3"]     # ChatAnthropic
+langchain-community = ["langchain-community>=0.3"]     # ChatTongyi / DashScopeEmbeddings (Qwen)
+
+# Convenience bundle: maximal + all first-party LangChain providers
+maximal-full = [
+    "asyncmy>=0.2",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
+    "langchain-anthropic>=0.3",
+    "langchain-community>=0.3",
+]
+
+# ── Other integrations ────────────────────────────────────────────────────────
+langgraph = ["langgraph>=0.2", "langchain-core>=0.3"]
+mcp = ["mcp"]
+otel = ["opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20"]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.8",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+]
+
+[project.urls]
+Homepage = "https://github.com/seekvfs/seekvfs"
+Repository = "https://github.com/seekvfs/seekvfs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seekvfs", "src/seekvfs_recipes"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/seekvfs",
+    "src/seekvfs_recipes",
+    "tests",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
+packages = ["seekvfs", "seekvfs_recipes"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = ["ignore::DeprecationWarning"]

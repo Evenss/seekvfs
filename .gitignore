@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+*.cover
+
+# Type checkers
+.pyre/
+.pytype/
+
+# Environment variables
+.env
+.env.local
+
+# Local CLI config / scratch
+vfs.yaml
+*.local.yaml
+
+#design
+DESIGN_*
+
+#test
+test_demo_*
