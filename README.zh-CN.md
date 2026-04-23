@@ -24,7 +24,7 @@ pip install "seekvfs[full]"
 
 | Recipe | 什么时候用 | 文档 |
 |---|---|---|
-| [`seekvfs_recipes.minimal`](docs/recipes/minimal.md) | **Minimal** — 单进程持久化存储,无需数据库,重启不丢数据 | [minimal.md](docs/recipes/minimal.md) |
+| [`seekvfs_recipes.minimal`](docs/recipes/minimal.md) | **Minimal** — 纯文件系统存储,无需数据库 | [minimal.md](docs/recipes/minimal.md) |
 | [`seekvfs_recipes.maximal`](docs/recipes/maximal.md) | **Maximal** — 最佳搭配组合:FS + OceanBase + 向量搜索 | [maximal.md](docs/recipes/maximal.md) |
 
 Recipe **不属于协议**,放在 `seekvfs_recipes.*` 下,和 `seekvfs` 核心严格分离。

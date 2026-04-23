@@ -24,7 +24,7 @@ pip install "seekvfs[full]"
 
 | Recipe | Use when | Docs |
 |---|---|---|
-| [`seekvfs_recipes.minimal`](docs/recipes/minimal.md) | **Minimal** — durable single-process storage, no database needed | [minimal.md](docs/recipes/minimal.md) |
+| [`seekvfs_recipes.minimal`](docs/recipes/minimal.md) | **Minimal** — pure filesystem storage, no database needed | [minimal.md](docs/recipes/minimal.md) |
 | [`seekvfs_recipes.maximal`](docs/recipes/maximal.md) | **Maximal** — best-combination: FS + OceanBase + vector search | [maximal.md](docs/recipes/maximal.md) |
 
 Recipes are NOT part of the protocol — they live under `seekvfs_recipes.*` so the `seekvfs` core package stays free of concrete backends.
