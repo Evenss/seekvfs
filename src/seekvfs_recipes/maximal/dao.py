@@ -130,14 +130,13 @@ class FilesDAO:
         ``ON DUPLICATE KEY UPDATE`` to avoid OceanBase HNSW vector-index
         conflicts when overwriting an existing embedding column.
         """
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"REPLACE INTO {self._table} (path, l0, l1, embedding)"
-                    f" VALUES (%s, NULL, NULL, NULL)",
-                    (path,),
-                )
-                await conn.commit()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"REPLACE INTO {self._table} (path, l0, l1, embedding)"
+                f" VALUES (%s, NULL, NULL, NULL)",
+                (path,),
+            )
+            await conn.commit()
 
     async def update_derivatives(
         self, path: str, l0: str, l1: str, emb: list[float]
@@ -146,15 +145,14 @@ class FilesDAO:
 
         Called after async (or sync) derivative generation completes.
         """
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"UPDATE {self._table}"
-                    f" SET l0 = %s, l1 = %s, embedding = %s"
-                    f" WHERE path = %s",
-                    (l0, l1, _vec_to_str(emb), path),
-                )
-                await conn.commit()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"UPDATE {self._table}"
+                f" SET l0 = %s, l1 = %s, embedding = %s"
+                f" WHERE path = %s",
+                (l0, l1, _vec_to_str(emb), path),
+            )
+            await conn.commit()
 
     async def clear_derivatives(self, path: str) -> None:
         """Set L0/L1/embedding back to NULL after an ``edit()``.
@@ -162,24 +160,22 @@ class FilesDAO:
         Marks the stored derivatives as stale; a new generation pass
         will fill them in.
         """
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"UPDATE {self._table}"
-                    f" SET l0 = NULL, l1 = NULL, embedding = NULL"
-                    f" WHERE path = %s",
-                    (path,),
-                )
-                await conn.commit()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"UPDATE {self._table}"
+                f" SET l0 = NULL, l1 = NULL, embedding = NULL"
+                f" WHERE path = %s",
+                (path,),
+            )
+            await conn.commit()
 
     async def delete(self, path: str) -> None:
         """Remove the row for *path* from the database."""
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"DELETE FROM {self._table} WHERE path = %s", (path,)
-                )
-                await conn.commit()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"DELETE FROM {self._table} WHERE path = %s", (path,)
+            )
+            await conn.commit()
 
     # ------------------------------------------------------------------ #
     # Read-path                                                            #
@@ -195,24 +191,22 @@ class FilesDAO:
             - ``row_exists = True, l0_value = None`` → row exists but L0 not yet generated.
             - ``row_exists = True, l0_value = "..."`` → L0 is available.
         """
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"SELECT l0 FROM {self._table} WHERE path = %s", (path,)
-                )
-                row = await cur.fetchone()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT l0 FROM {self._table} WHERE path = %s", (path,)
+            )
+            row = await cur.fetchone()
         if row is None:
             return False, None
         return True, row[0]
 
     async def get_l1(self, path: str) -> tuple[bool, str | None]:
         """Fetch the L1 overview for *path*.  Same semantics as ``get_l0``."""
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"SELECT l1 FROM {self._table} WHERE path = %s", (path,)
-                )
-                row = await cur.fetchone()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT l1 FROM {self._table} WHERE path = %s", (path,)
+            )
+            row = await cur.fetchone()
         if row is None:
             return False, None
         return True, row[0]
@@ -225,12 +219,11 @@ class FilesDAO:
         Returns:
             ``(row_exists, l1_value, l0_value)``
         """
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"SELECT l1, l0 FROM {self._table} WHERE path = %s", (path,)
-                )
-                row = await cur.fetchone()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT l1, l0 FROM {self._table} WHERE path = %s", (path,)
+            )
+            row = await cur.fetchone()
         if row is None:
             return False, None, None
         return True, row[0], row[1]
@@ -274,10 +267,9 @@ class FilesDAO:
         sql += " ORDER BY score DESC LIMIT %s"
         params.append(limit)
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, params)
-                rows = await cur.fetchall()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, params)
+            rows = await cur.fetchall()
 
         return [(r[0], r[1], float(r[2])) for r in rows]
 
@@ -294,14 +286,13 @@ class FilesDAO:
         if not paths:
             return {}
         placeholders = ", ".join(["%s"] * len(paths))
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"SELECT path, l0 FROM {self._table}"
-                    f" WHERE path IN ({placeholders})",
-                    paths,
-                )
-                rows = await cur.fetchall()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT path, l0 FROM {self._table}"
+                f" WHERE path IN ({placeholders})",
+                paths,
+            )
+            rows = await cur.fetchall()
         return {r[0]: r[1] for r in rows}
 
     async def find_incomplete(
@@ -323,22 +314,21 @@ class FilesDAO:
 
         placeholders = ", ".join(["%s"] * len(all_paths))
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    f"SELECT path FROM {self._table}"
-                    f" WHERE path IN ({placeholders})"
-                    f" AND (l0 IS NULL OR l1 IS NULL OR embedding IS NULL)",
-                    all_paths,
-                )
-                missing_deriv: set[str] = {r[0] for r in await cur.fetchall()}
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT path FROM {self._table}"
+                f" WHERE path IN ({placeholders})"
+                f" AND (l0 IS NULL OR l1 IS NULL OR embedding IS NULL)",
+                all_paths,
+            )
+            missing_deriv: set[str] = {r[0] for r in await cur.fetchall()}
 
-                await cur.execute(
-                    f"SELECT path FROM {self._table}"
-                    f" WHERE path IN ({placeholders})",
-                    all_paths,
-                )
-                in_db: set[str] = {r[0] for r in await cur.fetchall()}
+            await cur.execute(
+                f"SELECT path FROM {self._table}"
+                f" WHERE path IN ({placeholders})",
+                all_paths,
+            )
+            in_db: set[str] = {r[0] for r in await cur.fetchall()}
 
         no_db_record = set(all_paths) - in_db
         return missing_deriv, no_db_record

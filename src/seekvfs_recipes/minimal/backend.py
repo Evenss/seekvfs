@@ -173,7 +173,6 @@ class FileBackend:
         pattern: str | None = None,
         recursive: bool = False,
     ) -> list[FileInfo]:
-        scheme = _detect_scheme(path)
         prefix = path if path.endswith("/") else path + "/"
         # Local directory: strip scheme and trailing slash
         local_rel = prefix.removeprefix(_SCHEME).rstrip("/")
