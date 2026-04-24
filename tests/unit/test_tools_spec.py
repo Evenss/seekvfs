@@ -11,7 +11,16 @@ def _vfs() -> VFS:
 
 def test_eight_tools_present() -> None:
     specs = build_tools(_vfs())
-    expected = {"search", "read", "read_full", "write", "edit", "ls", "grep", "delete"}
+    expected = {
+        "vfs_search",
+        "vfs_read",
+        "vfs_read_full",
+        "vfs_write",
+        "vfs_edit",
+        "vfs_ls",
+        "vfs_grep",
+        "vfs_delete",
+    }
     assert set(specs.names()) == expected
 
 
@@ -24,15 +33,15 @@ def test_schema_structure() -> None:
 
 def test_description_override_applied() -> None:
     vfs = _vfs()
-    specs = build_tools(vfs).with_description_overrides({"search": "OVERRIDE"})
-    assert specs.by_name("search").description == "OVERRIDE"
-    assert build_tools(vfs).by_name("search").description != "OVERRIDE"
+    specs = build_tools(vfs).with_description_overrides({"vfs_search": "OVERRIDE"})
+    assert specs.by_name("vfs_search").description == "OVERRIDE"
+    assert build_tools(vfs).by_name("vfs_search").description != "OVERRIDE"
 
 
 def test_write_read_roundtrip_via_tools() -> None:
     specs = build_tools(_vfs())
-    specs.by_name("write").callable(path="seekvfs://mem/a", content="hello")
-    out = specs.by_name("read").callable(path="seekvfs://mem/a")
+    specs.by_name("vfs_write").callable(path="seekvfs://mem/a", content="hello")
+    out = specs.by_name("vfs_read").callable(path="seekvfs://mem/a")
     assert 'path="seekvfs://mem/a"' in out
     assert "hello" in out
     assert "returned_level" not in out
@@ -40,8 +49,8 @@ def test_write_read_roundtrip_via_tools() -> None:
 
 def test_search_tool_returns_shape() -> None:
     specs = build_tools(_vfs())
-    specs.by_name("write").callable(path="seekvfs://mem/a", content="alpha beta")
-    result = specs.by_name("search").callable(query="alpha", limit=3)
+    specs.by_name("vfs_write").callable(path="seekvfs://mem/a", content="alpha beta")
+    result = specs.by_name("vfs_search").callable(query="alpha", limit=3)
     assert "hits" in result
     assert "searched_paths" in result
     if result["hits"]:
@@ -51,7 +60,7 @@ def test_search_tool_returns_shape() -> None:
 
 def test_ls_tool() -> None:
     specs = build_tools(_vfs())
-    specs.by_name("write").callable(path="seekvfs://mem/a", content="x")
-    rows = specs.by_name("ls").callable(path="seekvfs://mem/")
+    specs.by_name("vfs_write").callable(path="seekvfs://mem/a", content="x")
+    rows = specs.by_name("vfs_ls").callable(path="seekvfs://mem/")
     assert any(r["path"] == "seekvfs://mem/a" for r in rows)
     assert all("snippet" in r for r in rows)
