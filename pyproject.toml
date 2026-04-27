@@ -50,8 +50,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/seekvfs/seekvfs"
-Repository = "https://github.com/seekvfs/seekvfs"
+Homepage = "https://github.com/ob-labs/seekvfs"
+Repository = "https://github.com/ob-labs/seekvfs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seekvfs", "src/seekvfs_recipes"]
